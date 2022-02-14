@@ -7,6 +7,7 @@ from firebase_admin import messaging
 
 base_url = "https://ebilet.tcddtasimacilik.gov.tr/view/eybis/tnmGenel/tcddWebContent.jsf"
 device_token = "dhVbGt_uTVmywvmANiwi0d:APA91bF6Tg9TQKvjd-1dJlbKahxSgggdfs8KqJQo3LAw9f8i5w0VxN6okLIrQog_Xn01df4MKsPOMHrDmYTwKotoDxNy4sZA0lgnwFb4wGkC4MmRFQwfS2stIKuyEnXnem5gTInGsaoK"
+browser = mechanize.Browser()
 
 
 def extract_empty_seats(text):
@@ -20,7 +21,6 @@ def remove_parenthesis(text):
 
 
 def simulate_browser_form_submit(outgoing_station, destination_station, departure_date):
-    browser = mechanize.Browser()
     browser.open(base_url)
     browser.select_form(nr=3)
     browser.form["nereden"] = outgoing_station
@@ -29,28 +29,34 @@ def simulate_browser_form_submit(outgoing_station, destination_station, departur
     return browser.submit()
 
 
-def scrap_ticket_information(outgoing_station, destination_station, departure_date):
+def fetch_table_body(outgoing_station, destination_station, departure_date):
     form_response = simulate_browser_form_submit(outgoing_station, destination_station, departure_date)
     html = form_response.read().decode("utf-8")
     soup = bs(html, "html.parser")
-    table_body = soup.find("tbody", {"id": "mainTabView:gidisSeferTablosu_data"})
+    return soup.find("tbody", {"id": "mainTabView:gidisSeferTablosu_data"})
+
+
+def scrap_ticket_information(outgoing_station, destination_station, departure_date):
+    table_body = fetch_table_body(outgoing_station, destination_station, departure_date)
+    retry_counter = 0
+    while type(table_body) == type(None) and retry_counter < 3:
+        print("table_body is none. retrying...")
+        table_body = fetch_table_body(outgoing_station, destination_station, departure_date)
+        retry_counter += 1
     head_ways = []
-    if type(table_body) != type(None):
-        trs = table_body.find_all("tr",
-                                  {"class": ["ui-widget-content ui-datatable-even",
-                                             "ui-widget-content ui-datatable-odd"]})
-        for tr in trs:
-            departure = tr.find("span", {"class": "seferSorguTableBuyuk"}).text
-            duration = tr.find_all("label", {"class": "ui-outputlabel"})[1].text
-            arrival = tr.find_all("span", {"class": "seferSorguTableBuyuk"})[1].text
-            seat_li_elements = tr.find_all("li", text=re.compile("(Ekonomi)"))
-            if len(seat_li_elements) != 0:
-                empty_seats = extract_empty_seats(seat_li_elements[0].text)
-                head_ways.append(
-                    {"departure": departure, "arrival": arrival, "duration": duration, "available_seats": empty_seats})
-        send_to_device(head_ways)
-    else:
-        print("table_body is none")
+    trs = table_body.find_all("tr",
+                              {"class": ["ui-widget-content ui-datatable-even",
+                                         "ui-widget-content ui-datatable-odd"]})
+    for tr in trs:
+        departure = tr.find("span", {"class": "seferSorguTableBuyuk"}).text
+        duration = tr.find_all("label", {"class": "ui-outputlabel"})[1].text
+        arrival = tr.find_all("span", {"class": "seferSorguTableBuyuk"})[1].text
+        seat_li_elements = tr.find_all("li", text=re.compile("(Ekonomi)"))
+        if len(seat_li_elements) != 0:
+            empty_seats = extract_empty_seats(seat_li_elements[0].text)
+            head_ways.append(
+                {"departure": departure, "arrival": arrival, "duration": duration, "available_seats": empty_seats})
+    send_to_device(head_ways)
 
 
 def send_to_device(sessions):
