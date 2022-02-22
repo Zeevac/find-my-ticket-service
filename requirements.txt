@@ -1,0 +1,10 @@
+requests
+bs4
+Flask
+firebase-admin
+mechanize
+pymongo
+yaml
+APScheduler
+PyYAML
+tzlocal

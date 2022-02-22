@@ -30,8 +30,9 @@ class Repository:
     def update(self, date, watching):
         self.sessions.update_one({"date": date}, {"$set": {"sessions": watching}}, upsert=True)
 
-    def remove(self, date, time=None):
-        if time is None:
+    # times should be array.
+    def remove(self, date, times=None):
+        if times is None:
             self.sessions.delete_one({"date": date})
         else:
-            self.sessions.update_one({"date": date}, {"$pull": {"sessions": {"$in": time}}})
+            self.sessions.update_one({"date": date}, {"$pull": {"sessions": {"$in": times}}})

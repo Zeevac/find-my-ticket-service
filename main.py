@@ -4,8 +4,10 @@ import firebase_admin
 from firebase_admin import credentials
 from flask import Flask, request
 
-from service import scrap_ticket_information, set_device_token, add_to_watching_session_service, \
-    remove_watching_session_service, get_watching_sessions_service, get_sessions_service
+from exceptions import TableNotFoundException
+from service import set_device_token, add_to_watching_session_service, \
+    remove_watching_session_service, get_watching_sessions_service, get_sessions_service, get_current_token_service, \
+    start, add_job, stop
 
 app = Flask(__name__)
 
@@ -18,9 +20,14 @@ def index():
     outgoing_station = request.json["outgoing"]
     destination_station = request.json["destination"]
     departure_date = request.json["date"]
-    watching_session = request.json["watching_session"]
-    scrap_ticket_information(outgoing_station, destination_station, departure_date, watching_session)
+    add_job(outgoing_station, destination_station, departure_date)
+    start()
     return ""
+
+
+@app.delete("/")
+def delete_job():
+    stop()
 
 
 @app.post("/sessions/watching")
@@ -44,7 +51,8 @@ def get_sessions():
     destination_station = request.json["destination"]
     departure_date = request.json["date"]
     sessions = get_sessions_service(outgoing_station, destination_station, departure_date)
-    print(sessions)
+    if type(sessions) == TableNotFoundException:
+        return {"data": "", "error": sessions.message}, sessions.code
     return {"data": json.dumps(sessions), "error": ""}
 
 
@@ -62,4 +70,11 @@ def set_device():
     return {"data": "", "error": ""}
 
 
-app.run()
+@app.get("/devices")
+def get_current_token():
+    token = get_current_token_service()
+    return {"data": token, "error": ""}
+
+
+if __name__ == '__main__':
+    app.run()

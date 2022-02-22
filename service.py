@@ -2,9 +2,12 @@ import json
 import re
 
 import mechanize
+import tzlocal
+from apscheduler.schedulers.background import BackgroundScheduler
 from bs4 import BeautifulSoup as bs
 from firebase_admin import messaging
 
+from exceptions import TableNotFoundException
 from repository import Repository
 
 base_url = "https://ebilet.tcddtasimacilik.gov.tr/view/eybis/tnmGenel/tcddWebContent.jsf"
@@ -17,6 +20,24 @@ for item in repository.get_all():
     watching_sessions[item["date"]] = item["sessions"]
 
 print(watching_sessions)
+scheduler = BackgroundScheduler(timezone=str(tzlocal.get_localzone()))
+
+
+def start():
+    print("start called")
+    scheduler.start()
+
+
+def stop():
+    print("stop called")
+    if scheduler.running:
+        scheduler.remove_all_jobs()
+
+
+def add_job(outgoing_station, destination_station, departure_date):
+    args = [outgoing_station, destination_station, departure_date]
+    job = scheduler.add_job(scrap_ticket_information, 'interval', args, seconds=5)
+    return job
 
 
 def extract_empty_seats(text):
@@ -55,35 +76,48 @@ def fetch_table_body_with_retry(outgoing_station, destination_station, departure
     return table_body
 
 
-def scrap_ticket_information(outgoing_station, destination_station, departure_date, watching_session):
-    add_to_watching_session_service(watching_session)
+def scrap_ticket_information(outgoing_station, destination_station, departure_date):
+    print("scrap_ticket_information called")
+    print(f"Len of watching_sessions: {str(len(watching_sessions))}, outgoing_station: {outgoing_station}, "
+          f"destination_station: {destination_station}, departure_date: {departure_date}")
+    print(watching_sessions)
+    if departure_date not in watching_sessions or departure_date in watching_sessions and len(
+            watching_sessions[departure_date]) == 0:
+        stop()
+        return
     table_body = fetch_table_body_with_retry(outgoing_station, destination_station, departure_date)
     head_ways = []
     trs = table_body.find_all("tr",
                               {"class": ["ui-widget-content ui-datatable-even",
                                          "ui-widget-content ui-datatable-odd"]})
     for tr in trs:
-        departure = tr.find("span", {"class": "seferSorguTableBuyuk"}).text
-        if not is_in_watching_session(departure):
+        departure_time = tr.find("span", {"class": "seferSorguTableBuyuk"}).text
+        if not is_in_watching_session(departure_date, departure_time):
             continue
         duration = tr.find_all("label", {"class": "ui-outputlabel"})[1].text
-        arrival = tr.find_all("span", {"class": "seferSorguTableBuyuk"})[1].text
+        arrival_time = tr.find_all("span", {"class": "seferSorguTableBuyuk"})[1].text
         seat_li_elements = tr.find_all("li", text=re.compile("(Ekonomi)"))
+        print(
+            f"Current tr:\n\tdeparture_time: {departure_time}\n\tduration: {duration}\n\tarrival: {arrival_time}\n\tseat_li_elements: {len(seat_li_elements)}")
         if len(seat_li_elements) != 0:
-            empty_seats = extract_empty_seats(seat_li_elements[0].text)
-            if int(empty_seats) > 2:
+            empty_seats = int(extract_empty_seats(seat_li_elements[0].text)) - 2
+            if empty_seats < 0:
+                empty_seats = 0
+            if int(empty_seats) > 0:
                 head_ways.append(
-                    {"departure": departure, "arrival": arrival, "duration": duration, "available_seats": empty_seats,
+                    {"departure": departure_time, "arrival": arrival_time, "duration": duration,
+                     "available_seats": str(empty_seats),
                      "is_watching": "true"})
+                remove_watching_session_service(departure_date, departure_time)
+
+    print(head_ways)
     if len(head_ways) > 0:
         send_to_device(head_ways)
+        stop()
 
 
-def is_in_watching_session(date, searching_session):
-    for session in watching_sessions[date]:
-        if session == searching_session:
-            return True
-    return False
+def is_in_watching_session(date, departure_time):
+    return date in watching_sessions and departure_time in watching_sessions[date]
 
 
 def add_to_watching_session_service(date, time):
@@ -98,31 +132,31 @@ def add_to_watching_session_service(date, time):
 def remove_watching_session_service(date, time):
     if date in watching_sessions and time in watching_sessions[date]:
         watching_sessions[date].remove(time)
-    else:
-        return ""
-    repository.remove(date, [time])
+        repository.remove(date, [time])
 
 
 def get_sessions_service(outgoing_station, destination_station, departure_date):
     table_body = fetch_table_body_with_retry(outgoing_station, destination_station, departure_date)
+    if type(table_body) == type(None):
+        return TableNotFoundException()
     head_ways = []
     trs = table_body.find_all("tr",
                               {"class": ["ui-widget-content ui-datatable-even",
                                          "ui-widget-content ui-datatable-odd"]})
     for tr in trs:
-        departure = tr.find("span", {"class": "seferSorguTableBuyuk"}).text
+        departure_time = tr.find("span", {"class": "seferSorguTableBuyuk"}).text
         duration = tr.find_all("label", {"class": "ui-outputlabel"})[1].text
-        arrival = tr.find_all("span", {"class": "seferSorguTableBuyuk"})[1].text
+        arrival_time = tr.find_all("span", {"class": "seferSorguTableBuyuk"})[1].text
         seat_li_elements = tr.find_all("li", text=re.compile("(Ekonomi)"))
         if len(seat_li_elements) != 0:
             empty_seats = int(extract_empty_seats(seat_li_elements[0].text)) - 2
             if empty_seats < 0:
                 empty_seats = 0
             is_watching = "false"
-            if departure_date in watching_sessions and departure in watching_sessions[departure_date]:
+            if departure_date in watching_sessions and departure_time in watching_sessions[departure_date]:
                 is_watching = "true"
             head_ways.append(
-                {"departure": departure, "arrival": arrival, "duration": duration, "available_seats": str(empty_seats),
+                {"departure": departure_time, "arrival": arrival_time, "duration": duration, "available_seats": str(empty_seats),
                  "is_watching": is_watching})
     return head_ways
 
@@ -142,3 +176,7 @@ def send_to_device(sessions):
 def set_device_token(token):
     global device_token
     device_token = token
+
+
+def get_current_token_service():
+    return device_token
