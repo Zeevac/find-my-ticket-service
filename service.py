@@ -28,9 +28,13 @@ def start():
     scheduler.start()
 
 
+def is_scheduler_running():
+    return scheduler.running
+
+
 def stop():
     print("stop called")
-    if scheduler.running:
+    if is_scheduler_running():
         scheduler.remove_all_jobs()
 
 
@@ -156,7 +160,8 @@ def get_sessions_service(outgoing_station, destination_station, departure_date):
             if departure_date in watching_sessions and departure_time in watching_sessions[departure_date]:
                 is_watching = "true"
             head_ways.append(
-                {"departure": departure_time, "arrival": arrival_time, "duration": duration, "available_seats": str(empty_seats),
+                {"departure": departure_time, "arrival": arrival_time, "duration": duration,
+                 "available_seats": str(empty_seats),
                  "is_watching": is_watching})
     return head_ways
 

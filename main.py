@@ -7,7 +7,7 @@ from flask import Flask, request
 from exceptions import TableNotFoundException
 from service import set_device_token, add_to_watching_session_service, \
     remove_watching_session_service, get_watching_sessions_service, get_sessions_service, get_current_token_service, \
-    start, add_job, stop
+    start, add_job, stop, is_scheduler_running
 
 app = Flask(__name__)
 
@@ -21,20 +21,27 @@ def index():
     destination_station = request.json["destination"]
     departure_date = request.json["date"]
     add_job(outgoing_station, destination_station, departure_date)
-    start()
-    return ""
+    if not is_scheduler_running():
+        start()
+    return {"data": "true", "error": ""}
 
 
 @app.delete("/")
 def delete_job():
     stop()
+    return {"data": "true", "error": ""}
 
 
 @app.post("/sessions/watching")
 def add_watching_session():
+    departure = request.json["departure"]
+    arrival = request.json["arrival"]
     date = request.json["date"]
     time = request.json["time"]
     add_to_watching_session_service(date, time)
+    add_job(departure, arrival, date)
+    if not is_scheduler_running():
+        start()
     return {"data": "true", "error": ""}
 
 
@@ -47,10 +54,10 @@ def remove_watching_session(date):
 
 @app.post("/sessions")
 def get_sessions():
-    outgoing_station = request.json["outgoing"]
-    destination_station = request.json["destination"]
+    departure_station = request.json["departure"]
+    arrival_station = request.json["arrival"]
     departure_date = request.json["date"]
-    sessions = get_sessions_service(outgoing_station, destination_station, departure_date)
+    sessions = get_sessions_service(departure_station, arrival_station, departure_date)
     if type(sessions) == TableNotFoundException:
         return {"data": "", "error": sessions.message}, sessions.code
     return {"data": json.dumps(sessions), "error": ""}
