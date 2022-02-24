@@ -4,6 +4,7 @@ Flask
 firebase-admin
 mechanize
 pymongo
+pymongo[srv]
 APScheduler
 PyYAML
 tzlocal
