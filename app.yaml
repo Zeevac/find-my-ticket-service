@@ -1,0 +1,5 @@
+mongodb:
+  url: "mycluster.k9ou4.mongodb.net"
+  db: "myDB"
+  username: "zeevac"
+  password: "Yildirim1996"

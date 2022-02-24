@@ -36,6 +36,8 @@ def stop():
     print("stop called")
     if is_scheduler_running():
         scheduler.remove_all_jobs()
+    else:
+        print("Scheduler is not running.")
 
 
 def add_job(outgoing_station, destination_station, departure_date):
@@ -109,7 +111,9 @@ def scrap_ticket_information(outgoing_station, destination_station, departure_da
                 empty_seats = 0
             if int(empty_seats) > 0:
                 head_ways.append(
-                    {"departure": departure_time, "arrival": arrival_time, "duration": duration,
+                    {"departure": departure_time,
+                     "arrival": arrival_time,
+                     "duration": duration,
                      "available_seats": str(empty_seats),
                      "is_watching": "true"})
                 remove_watching_session_service(departure_date, departure_time)
